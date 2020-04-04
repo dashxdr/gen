@@ -1,0 +1,62 @@
+gdb for m68k has to be built from source
+tar xf gdb-8.1.tar.xz
+cd gdb-8.1
+mkdir build
+cd build
+../configure --target=m68k-linux-elf
+make -j4
+cp gdb/gdb ~/c/gdb-m68k-elf
+
+This has the guy's gdb server as reference
+https://github.com/dashxdr/umdkv2
+
+
+This is what gdbserver claims it can do:
+
+augmented-libraries-svr4-read+;
+BreakpointCommands+;
+ConditionalBreakpoints+;
+ConditionalTracepoints+;
+DisconnectedTracing+;
+EnableDisableTracepoints+;
+exec-events+;
+FastTracepoints+;
+fork-events+;
+hwbreak+;
+InstallInTrace+;
+multiprocess+;
+no-resumed+
+PacketSize=3fff;
+QAgent+;
+QCatchSyscalls+;
+QDisableRandomization+;
+QEnvironmentHexEncoded+;
+QEnvironmentReset+;
+QEnvironmentUnset+;
+QNonStop+;
+QPassSignals+;
+QProgramSignals+;
+QSetWorkingDir+;
+QStartNoAckMode+;
+QStartupWithShell+;
+QTBuffer:size+;
+QThreadEvents+;
+qXfer:auxv:read+;
+qXfer:exec-file:read+;
+qXfer:features:read+;
+qXfer:libraries-svr4:read+;
+qXfer:osdata:read+;
+qXfer:siginfo:read+;
+qXfer:siginfo:write+;
+qXfer:spu:read+;
+qXfer:spu:write+;
+qXfer:statictrace:read+;
+qXfer:threads:read+;
+qXfer:traceframe-info:read+;
+StaticTracepoints+;
+swbreak+;
+tracenz+;
+TracepointSource+;
+TraceStateVariables+;
+vContSupported+;
+vfork-events+;

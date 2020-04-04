@@ -1,0 +1,628 @@
+***GENESIS HARDWARE INTERNALS***
+
+*TILES*
+
+Tiles are 8x8 groups of pixels. Each pixel is 4 bits. Pixels are stored two
+per byte, left to right, top to bottom. There are 32 bytes per tile. Each tile
+pixel represents the low four bits of the color. The upper two bits are
+represented by the 2 color control bits in each word of plane memory, or the
+2 color control bits in the sprite control structure. Tiles must be stored on
+addresses with lower five bits cleared:$0000,$0020,$0040,$0060...
+
+*PLANES*
+
+There are two planes, A and B. Each plane is either 32, 64 or 128 tiles wide
+and 32, 64 or 128 tiles high. 32x32x2=2048 bytes, 64x32x2=4096 bytes,
+64x64x2=8192 bytes,etc. There are 8 locations for the A and B planes,
+specified by the registers below. The A plane can have a non-scrolling portion
+that can point to any of 16 locations.
+
+*SPRITES*
+
+Sprites are composed of tiles. Sprite size is defined in the sprite control
+block. Sprites can be from 1 to 4 tiles wide, and from 1 to 4 tiles high.
+The sprite control block only has one word describing the location of the
+tiles for that sprite. Tiles for the sprite are stored from top to bottom,
+left to right.
+
+*ACCESSING THE GFX CHIP*
+
+The GFX chip is accessed by the 68000 through two addresses, $C00000
+and $C00004. Words are usually written or read from these addresses.
+Long words may be used as well to speed things up. Words written to
+$c00002 are treated as if they're written to $c00000, and words written
+to $c00006 are treated as if they're written to $c00004.
+
+$c00004 is the control port, and $c00000 is the data port for tranfering
+blocks of data. All the graphics controls, such as how to set up sprites,
+how to set up the display, etc, are accessed by writing words to $c00004.
+All data, such as how sprites are to look, or how the backgrounds are to
+look, is accessed by writing words to $c00000.
+
+**Words written to C000004**
+
+*Setting the target address*
+
+The target address must be set, then words written to $c00000
+will be sent to that address. After each write, the address is
+incremented, so transfer of a block of data is done simply by
+writing successive words to $c00000. Data can be read back from
+the GFX chip. Words read from $c00000 will reflect the contents of
+the memory specified by the target address. Each successive read
+causes the address to increment, so a block of data can be read
+simply by reading words from $c00000.
+
+The target address can be in the 64K graphics memory, in the color
+table, or the vertical scroll registers. To specify which target
+and what address, two words must be written to $c00004. The words
+written are different depending on whether a read or a write is
+intended.
+
+In the following list, X is the intended address. The least
+significant bit is ignored for word operations. Each entry shows
+two equations which tell how to compute the two words that must
+be sent to $c00004.
+
+*Graphics memory access*
+
+(X is in full 16 bit range)
+
+WRITE
+ ($4000 + (X & $3fff))
+ (X>>14)
+
+READ
+ (X & $3fff)
+ (X>>14)
+
+*Color table access*
+
+ (only the low 7 bits of X are significant)
+
+WRITE
+ ($c000 + (X & $3fff))
+ (X>>14)
+
+READ
+ (X & $3fff)
+ ($20 + (X>>14))
+
+Words written to $C00000 are as follows:
+
+The color table has 64 entries, grouped in 4 sets of 16.
+The format for each color is
+
+MSB  xxxx BBBx GGGx RRRx   LSB
+
+*Vertical scroll register access*
+
+WRITE
+
+($4000 + (X & $3fff))
+
+($10 + (X>>14))
+
+READ
+
+(X & $3fff)
+
+($10 + (X>>14))
+
+Words written to the vertical scroll registers work as follows:
+
+Each plane is divided into strips that are two tiles wide
+(16 pixels). Fine scrolling is possible for each strip if
+the $04 bit of register 8B is set to 1. The first word
+written to $c00000 controls the first strip (leftmost 2
+columns of tiles) of plane A, then the next word controls
+the first strip of plane B, then the next word controls
+the second strip of plane A, then the second strip of plane
+B, and so on. Only the lower 9 bits of the word are
+significant, allowing for scrolling up to 511 pixels.
+
+*Block moves to any target*
+
+WRITE
+
+Set up first word normally.
+Add $80 to second word. This begins the transfer.
+See registers 93-97 below for setting up for the transfer.
+
+**Graphics control registers**
+
+8000-80FF
+	Bits affect display
+	01=Turns display off if 1
+	04=If 1, colors are brighter, more colors (red)
+	08=If 1, H & V sync go out
+	10=ENABLE INTERRUPT ON HORIZONTAL SYNC IF 1
+	20=If 0, add two extra tiles on left of screen
+	80=If 1, seems to disable vertical scrolling on strip of A,
+	   going from columns $0c to $0f
+
+8100-81FF
+	Perhaps controls PAL/NTSC. Affects SYNC
+	04=Horizontal sync goes out if 0
+	08=Vertical sync goes out if 1
+	10=(Affects speed of transfer. Perhaps halts 68000 while transfer
+	   is going on)
+	20=ENABLE VERTICAL BLANK INTERRUPT IF 1
+	40=Black screen if 0
+	80=Does something with tiles. Seem to become only 4 high.
+	MUST SET 04 to 1 for normal writes, otherwise crap is displayed
+
+8200-82FF
+	Sets location of plane A
+	Only affects the right half of the plane (as set by reg.91)
+	08=add $2000 to address of tile pointer table
+	10=add $4000 to address of tile pointer table
+	20=add $8000 to address of tile pointer table
+
+8300-83FF
+	Sets location of plane A
+	Only affects the left half of the plane (as set by reg.91)
+	04=add $1000 to location
+	08=\
+	10==> Probably same as 8200-82ff bits 08,10 and 20
+	20=/
+
+8400-84FF
+	Sets location of plane B
+	01=add $2000 to address of tile pointer table
+	02=add $4000 to address of tile pointer table
+	04=add $8000 to address of tile pointer table
+
+8500-85FF
+	Controls where the sprite info table is
+	Bits 1-6 inclusive make up the address
+	Multiply that number by $200 to get absolute location.
+	00=0000 08=1000 10=2000 18=3000 20=4000 etc.
+	02=0400 0a=1400 12=2400 1a=3400 22=4400
+	04=0800 0c=1800 14=2800 1c=3800 24=4800
+	06=0c00 0e=1c00 16=2c00 1e=3c00 26=4c00
+	The sprite info table is 128 entries of 8 bytes each, 1K total
+
+8600-86FF
+	Unused
+
+8700-87FF
+	Sets which color will be the background, 00-3F
+
+8800-88FF
+	Unused
+
+8900-89FF
+	Unused
+
+8A00-8AFF
+	This sets the rate of horizontal blanking interrupts. Horizontal
+	interrupts will occur (INT 4) every X lines, where X is the value
+	of this register plus 1.
+
+8B00-8BFF
+	01=Affects Horizontal scroll. If 1, enables fine control of
+	   scrolling for A and B planes. Enables 8 sets of every 8th
+	   line to be controlled. First word pair controls rows 0,8,16,etc.
+	   Second word pair controls rows 1,9,17,etc.
+	02=If 1 enables fine control of horizontal scroll. Each pair of
+	   words controls one horizontal line. The first pair controls
+	   the top 8 lines (or 1 row of tiles).
+	 The above 2 bits work together:
+	 00=normal scroll, only first 2 words matter (A then B planes)
+	 01=every 8th line is controlled by first 8 pairs of words
+	 10=fine scroll, 1st word pair in 8 controls 8 rows
+	 11=fine scroll, 1 word pair/row
+	 y0-y7=y display line bits (0=top line of display, 1=next line, etc)
+	 addr in scroll table (0=first word pair, 1=next, etc) for row y:
+	 00=  0  0  0  0  0  0  0  0
+	 01=  0  0  0  0  0 y2 y1 y0
+	 10= y7 y6 y5 y4 y3  0  0  0
+	 11= y7 y6 y5 y4 y3 y2 y1 y0
+	04=Affects Vertical scroll. If 1, enables fine control of
+	   scrolling for A and B planes. Divide each plane into vert.
+	   strips 2 tiles wide. Words written to C00000 affect A then
+	   B strips. Must first write $40000010 to $C00004.
+	40=Machine craps out when 1. Must power down then up.
+
+8C00-8CFF
+	Affects various screen attributes and controls.
+	01=Horiz. resolution,1=high. If set to 0, there are 32 visible
+	   tiles per display line. If set to 1, there are about 40 visible.
+	02=Interlace if 1
+	04=DOUBLE TILES: If 1 and bit 02 is 1 also, then the meaning of
+	  the tile pointers changes. Tiles for sprites and planes become
+	  16 high, requiring 64 bytes for storage. Tile pointers now point
+	  to the address times 64 instead of times 32. The screen is
+	  interlaced, and on even frames the even rows of each tile are
+	  displayed. On odd frames the odd rows of each tile are
+	  displayed.
+	  In this mode there are 248 lines on the display.
+	  It is possible that in this mode you can only have sprites with
+	  a Y size of 1. Other values might not display correctly.
+	08=If 1, HALF BRITE is turned on.
+	20=
+	80=Shift screen right if 1 and if bit 20 is zero.
+
+8D00-8DFF
+	Sets location of Horizontal scroll table
+	Horizontal scroll table has form of 1 word for A, 1 word for B
+	Repeat as necessary, as defined by other registers.
+	Bits 0-5 select address on 1K boundaries.
+
+8E00-8EFF
+	Unused
+
+8F00-8FFF
+	DMA control
+	01=Enable Block fill DMA if 1, as defined by regs 93-97
+	02=Enable Block transfer DMA if 1, as defined by regs 93-97
+	NOTE:Both bits together might mean byte or word operation
+		01=byte, 10=word
+
+9000-90FF
+	01=32/64 tiles per line for tile pointer table. For 32 or 64
+	   tiles, set bit 02 to 0.
+	02=32 or 64/128 tiles per line for tile pointer table. For
+	   128 tiles, set bit 01 to 1 and bit 02 to 1.
+	10=32/64 tiles per column for tile pointer table. For 32 or 64
+	   tiles, set bit 20 to 0.
+	20=32 or 64/128 tiles per column for tile pointer table.
+	   For 128 tiles, set bit 10 to 1 and bit 20 to 1.
+
+9100-91FF
+	Affects selecting the left and right halves of plane A
+	Bits 0-4 control division point, in units of 2 tiles
+	80=Invert, exchanging right for left
+
+9200-92FF
+	Affects selecting top and bottom halves of the plane A
+	Bits 0-4 control division point, in units of 1 tile
+	80=Invert, exchanging top for bottom
+
+9300-93FF
+	DMA control. Low byte specifies the low byte of # of words
+	to transfer for block moves.
+
+9400-94FF
+	DMA control. Low byte specifies the high byte of # of words
+	to transfer for block moves.
+
+9500-95FF
+	DMA control. LOC/2 low 8 bits
+
+9600-96FF
+	DMA control. LOC/2 bits 8-15
+
+9700-97FF
+	DMA control. LOC/2 bits 16-22
+	80=type of transfer. 0 = copy words. 1 = byte fill. Next
+		byte written to $C00000 starts fill.
+		If 0, writing $0080 to $C00004 starts copy
+
+**OTHER CONTROL ADDRESSES**
+
+A11100
+	Halt Z80 if $0100 is written
+
+A11200
+	Reset Z80 if $0000 is written (Instead of $0100)
+
+A00000-A01FFF
+	Z80's memory window, visible when A11100 and A11200 have $100
+	written to them.
+
+A04000,A04001,A04002,A04003
+	Control words for Yamaha sound chip. Can be written by 68000
+
+A10000-A1001F
+	Ports for reading joysticks
+
+**STATUS WORD, READING FROM C00004**
+
+	02=DMA BUSY if 1.
+	04=Horizontal blank if 1
+	08=Vertical blank if 1
+
+**GRAPHICS MEMORY MAP**
+
+0000-E000
+	Tile pointer memory for both planes
+	Can be located on any multiple of $2000, with registers $82-$84
+	Organized as 64 words by 32 rows (4K bytes)
+	Each tile pointer is as follows:
+	Bits 0-10 select the tile. Tiles must be aligned on 32 byte
+		boundaries.
+	Bit 11 = Invert X
+	Bit 12 = Invert Y
+	Bit 13-14 = Select which group of 16 colors to use out of 64
+	14 13
+	00=0-15
+	01=16-31
+	10=32-47
+	11=48-63
+	Bit 15 = DEPTH.Whether tile should be in front of sprites.
+
+0000-FC00
+	Horizontal scroll table
+	Can be located on any multiple of $0400 by setting reg. $8D
+	Even words affect plane A, Odd words affect plane B.
+	See registers $8D,$8B,$91,$92
+
+0000-FC00
+	Sprite table, which has 128 elements.
+	Can be located on any multiple of $0400 by setting reg. $85
+	Each element consists of 4 words (8 bytes):
+	WORD 0 = YPOS
+	WORD 1 = Sprite Size + pointer to next element to process.
+		Bits 0-6 select # of next element
+		Bits 8-9 select YSize. Add 1 to get # of tiles
+		Bits 10-11 select XSize. Add 1 to get # of tiles
+	WORD 2 = Pointer to tile data, color and invert bits.
+		Same as tile pointer memory above.
+	WORD 3 = XPOS
+	Tiles for a particular sprite must be together, starting with
+	the addressed sprite. The order is top to bottom, left to right.
+	Maximum of 10 sprites/line if sprites are 4 wide
+		 12 or 13/line if sprites are 3 wide
+		 20/line if sprites are 2 or 1 wide
+	COLORS: if HBRITE is enabled ($08 of register $8C), sprite
+		colors $3E and $3F raise and lower the intensity of
+		whatever is behind. Useful for shadows
+
+*DEPTH OF A, B and sprites*
+
+Set by $8000 bit of tile pointers
+ SAB	Order	Halfbright status
+ 000	SAB	all dark
+ 001	BSA	none
+ 010	ASB	none
+ 011	ABS	none
+ 100	SAB	all but sprites dark
+ 101	SBA	none
+ 110	SAB	none
+ 111	SAB	none
+
+**AUDIO**
+
+The Z80 controls the Yamaha FM synthesis chip. The chip provides 6 FM
+voices, each with four operators. Each voice has its own set of parameters
+so it can sound unique from the other 5. The FM chip is accessed by 4 bytes
+appearing at location $4000 through $4003 in the Z80's memory. In general
+there are two halves to the chip, where each half has control of 3 voices.
+To write to the registers, first a byte is written to location $4000, then
+a byte to $4001 (or to $4002, then to $4003). The first byte sets the register
+to write to, and the second byte writes to the register.
+
+Below is the table of the FM chip definitions. The addresses correspond to
+the first voice for each half of the FM chip. The second voice is at the
+address +1. The third voice is at the address+2. The address+3 has no effect
+since there are only three voices per half.
+
+Each operator has its own unique envelope. There is an ATTACK which has
+32 possible rates, there is a FIRST DECAY, which has 32 rates. It then
+reaches the FIRST DECAY LEVEL, which has 16 possible values. Then it
+goes to the SECOND DECAY, which has 32 rates. This continues as long as the
+operator is on. If the operator is turned off, the RELEASE begins, and it
+has 32 possible rates.
+
+Each operator has a FREQUENCY RATIO. There are two registers that set the
+frequency of the voice. Each operator can have multiples of that frequency
+starting at 1. The FREQUENCY RATIO has 16 possible values.
+
+Each operator has its own OUTPUT LEVEL. Its range is from 0 to 99.
+
+Each operator has its own PITCH SENSITIVITY. In a piano, higher notes die
+out faster. By setting the PITCH SENSITIVITY, the operator can act
+independently of the frequency of the note or it can be affected to
+various degrees by it. The PITCH SENSITIVITY has 8 possible values.
+
+Each voice has its on ALGORITHM. This affects how the four operators work
+together. There are 8 possible values. In general they range from a vertical
+stack where the first operator modulates the second, which modulates the
+third, which modulates the fourth, to a horizontal stack where all four
+operators feed directly into the output and are summed together. Pipe organs
+can be mimicked by having a horizontal stack. Weird SCI-FI effects and
+musical instruments can be mimicked by having operators modulate other
+ones. Each voice has a FEEDBACK control. One of the operators has its
+output feeding back into its modulation input. The FEEDBACK level sets
+how much feedback there is. If it is set to higher values, there is
+more feedback and the operator gets more noisy and interesting. There
+are 8 possible values for the FEEDBACK.
+
+Each voice can be heard from either the left, the right, or both channels.
+
+28	Voice select and operator control.
+	The low three bits select the voice to affect with the upper 4 bits.
+	00=voice 0
+	01=voice 1
+	02=voice 2
+	04=voice 3
+	05=voice 4
+	06=voice 5
+	The upper four bits each correspond to one of the four operators.
+	Setting the bit to 1 means turn that operator on. Setting the
+	bit to 0 means turn that operator off. Going from a 0 to a 1
+	turns an operator on and starts its envelope at the beginning.
+	It will eventually hit the sustain level and be held there until
+	the bit is changed from a 1 to a 0, where it then begins the
+	release phase of the envelope.
+
+30	00 to 1F  OP4 Frequency ratio
+
+34	00 to 1F  OP3 Frequency ratio
+
+38	00 to 1F  OP2 Frequency ratio
+
+3C	00 to 1F  OP1 Frequency ratio
+
+40	00 to 7F  OP4 Out level
+
+44	00 to 7F  OP3 Out level
+
+48	00 to 7F  OP2 Out level
+
+4C	00 to 7F  OP1 Out level
+
+50	00 to 1F	OP4 AR	20 to E0	Time multiplyer (pitch sens.)
+
+54	00 to 1F	OP3 AR	20 to E0	Time multiplyer
+
+58	00 to 1F	OP2 AR	20 to E0	Time multiplyer
+
+5C	00 to 1F	OP1 AR	20 to E0	Time multiplyer
+
+60	00 to 1F	OP4 D1R
+
+64	00 to 1F	OP3 D1R
+
+68	00 to 1F	OP2 D1R
+
+6C	00 to 1F	OP1 D1R
+
+70	00 to 1F	OP4 D2R
+
+74	00 to 1F	OP3 D2R
+
+78	00 to 1F	OP2 D2R
+
+7C	00 to 1F	OP1 D2R
+
+80	00 to 0F	OP4 RR	F0 to 00	OP4 D1L
+
+84	00 to 0F	OP3 RR	F0 to 00	OP3 D1L
+
+88	00 to 0F	OP2 RR	F0 to 00	OP2 D1L
+
+8C	00 to 0F	OP1 RR	F0 to 00	OP1 D1L
+
+90		OP4
+
+94		OP3
+
+98		OP2
+
+9C		OP1
+
+A0	00 to FF	Freq Low
+
+A4	00 to FF	Freq Low
+
+B0	00 to 07	Algorithm
+
+	08 to 38	Feedback
+
+B4	00 to C0	Stereo enable. 40=Left, 80=Right (or backwards)
+
+	00 to 07	LFO Pitch sensitivity
+
+*DIGITAL PLAYBACK OF SAMPLES*
+
+To be able to access the digital to analog converter, you must
+first set register $2b to $8f. Then writing to register $2a sends
+the 8 bit data to the DAC. The number is unsigned, meaning 00 is
+one extreme and FF is the other.
+
+*TI PSG CHIP*
+
+Control port for 68000 is $C00011, writing bytes
+It has 4 channels (sound comes out of both sides)
+3 are tones, 1 is white noise generator
+
+ 76543210
+ 1aa1xxxx	Set volume of voice #aa to 15-xxxx
+ 1aa0xxxx	Set low four bits of frequency for voice aa to xxxx
+ 00xxxxxx	Set high 6 bits of frequency for last voice specified
+
+Frequency control for tones is 10 bits. Numbers closer to 0 are higher. The
+frequency value sets the count of pulses before a switch (probably square
+waves)
+
+Frequency control for the noise generator (voice #3) sets its frequency
+characteristics. Only 7 possible states. 0-3 are tones, 4-7 are noise, with
+different tonal qualities.
+
+**Z80 INFORMATION**
+
+Z80 Memory map
+
+0000-1FFF
+	Z80's own 8K ram
+
+2000-3000
+	Locks up 68000
+
+8000-FFFF
+	Z80 can access 68000 memory. Address is set by loading up a
+	shift register at $6000. Bits go from low to high (high bits
+	written last. $c00000=0,0,0,0,0,0,0,1,1. The shift register
+	loads up the upper 9 bits of the window appearing at $8000.
+
+**INTERRUPTS**
+
+68000
+	Autovector 6, at $78, handles the Vertical blank interrupt.
+	This is controlled by bit $20 of GFX register 81.
+	Autovector 4, at $70, handles the Horizontal blank interrupt.
+	This is controlled by bit $10 of GFX register 80.
+
+Z80
+	Vertical blank interrupt is enabled when the Z80 is in IM1, and
+	EI has been executed. After each interrupt, another EI must be
+	executed to enable the next one. When the interrupt occurs, location
+	$38 is called.
+
+**Sega Genesis 64 Pin cartridge connector (Top View)**
+
+BACK OF BOARD			FRONT OF BOARD
+ Ground	A   32	B	Ground this pin, /CartridgePresent(A18also)
+ +5	A   31	B	?
+ D11	A   30	B	Negative Reset Input
+ D3	A   29	B	/WRITE high bits 8-15
+ D4	A   28	B	/WRITE low bits 0-7
+ D10	A   27	B	RESET
+ D2	A   26	B	?
+ D5	A   25	B	D12
+ D9	A   24	B	D13
+ D1	A   23	B	D14
+ D6	A   22	B	D15
+ D8	A   21	B	?
+ D0	A   20	B	/DTACK
+ D7	A   19	B	CLK
+ /CART	A   18	B	/AS
+ A1	A   17	B	Memory Pin 10 (Chip select)
+ A17	A   16	B	Memory Pin 12 (Output enable)
+ A2	A   15	B	14 MGZ clock
+ A16	A   14	B	Negative Horizontal Sync
+ A3	A   13	B	Negative Vertical Sync
+ A15	A   12	B	Positive Composite Sync
+ A4	A   11	B	A23
+ A14	A   10	B	A22
+ A5	A    9	B	A21
+ A13	A    8	B	A20
+ A6	A    7	B	A19
+ A12	A    6	B	A18
+ A7	A    5	B	A10
+ A11	A    4	B	A9
+ A8	A    3	B	?
+ +5	A    2	B	Negative Reset Input
+ Ground	A    1	B	?
+
+*NOTES*
+
+Pins B32 and A18 must be grounded for the Genesis to think there's a
+cartridge in the machine. Pin A18 was ignored in early versions of the
+Genesis.
+
+*PROTECTION ON NEW MACHINES*
+
+The ascii characters for SEGA must be at location $100. On reset the following
+code has to be executed quickly, perhaps immediately:
+
+	move.b	$a10001,d0
+	andi.b	#$0f,d0
+	beq.s	skip
+	move.l	#'SEGA',$a14000
+ skip:
+
+Also pin A18 has to be grounded, and perhaps A1 and A32 have to be connected.
+

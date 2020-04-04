@@ -1,0 +1,50 @@
+Any C00000 access switches to mode 0.
+On reset mode=0.
+
+00.. .... .... ..bb = set upper 2 bits of addr
+
+mode 0:
+00aa aaaa aaaa aaaa = mode->1, set low  14 bits of addr, xmode=0xxx
+01aa aaaa aaaa aaaa = mode->1, set low  14 bits of addr, xmode=10xx
+10.a aaaa bbbb bbbb = mode->0, set register a to value b
+11.. .... .ccc ccc. = mode->1, set low  14 bits of addr, xmode=11xx
+
+mode 1:
+.... .... 0.00 ..bb = mode->0, set upper 2 bits of addr, xmode=xx00
+.... .... 0.01 ..bb = mode->0, set upper 2 bits of addr, xmode=xxx1
+.... .... 0.10 ..bb = mode->0, set upper 2 bits of addr, xmode=xx1x
+
+xmode:
+mode 0 read c00000:
+0000 = read gfx mem
+0001 = read vscroll mem
+0010 = read cmap mem
+0011 = read gfx mem, high 8 bits unpredictable
+1... = lockup
+mode 1 read c00000:
+.... = lockup
+
+mode 0 write c00000:
+0... = xmode->1111
+1000 = write gfx mem
+1001 = write vscroll mem
+1010 = NOP
+1011 = NOP
+1100 = write cmap mem
+1101 = NOP
+1110 = NOP
+1111 = NOP
+mode 1 write c00000:
+.... = mode switch to 0
+0... = mode->1111
+1000 = write gfx mem
+1001 = write vscroll mem
+1010 = NOP
+1011 = NOP
+1100 = write cmap mem
+1101 = NOP
+1110 = NOP
+1111 = NOP
+
+Writing 80-ff to register $97 and writing 0000-3fff,00c0 to c00004
+causes a block move to take place, source is gfx mem, dest is gfx mem.
